@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thanh Son Sales Management - Admin & Field Tools</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+        #map { width: 100%; height: 500px; border-radius: 12px; }
+        #chartContainer { position: relative; height: 300px; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+        .calendar-day { padding: 10px; text-align: center; border: 1px solid #ddd; min-height: 60px; border-radius: 8px; }
+        .stat-card { transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-5px); }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+
+    <input type="file" id="photoInput" accept="image/*" style="display:none;" onchange="handlePhotoSelect(event)" />
+    <input type="file" id="excelInput" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importFromExcel(event)" />
+
+    <script>
+        // ============ STATE & DATA ============
+        let currentUser = null;
+        let loginEmail = '';
+        let loginPassword = '';
+        let showPassword = false;
+        let activeTab = 'dashboard';
+        let selectedStaffId = null;
+
+        // Storage
+        let visits = JSON.parse(localStorage.getItem('visits')) || [];
+        let notes = JSON.parse(localStorage.getItem('notes')) || [];
+        let photos = JSON.parse(localStorage.getItem('photos')) || [];
+
+        // 40 Users
+        const validUsers = [
+            { id: 1, email: 'admin1@gmail.com', password: 'K1en_Lua@2024', name: 'Lê Văn A', phone: '0987654321', role: 'admin', lat: 10.77, lng: 106.70 },
+            { id: 2, email: 'admin2@gmail.com', password: 'K1en_Lua@2024', name: 'Trần Thị B', phone: '0987654322', role: 'admin', lat: 10.78, lng: 106.71 },
+            { id: 3, email: 'salesadmin1@gmail.com', password: 'K1en_Lua@2024', name: 'Phạm Văn C', phone: '0987654323', role: 'salesadmin', lat: 10.76, lng: 106.69 },
+            { id: 4, email: 'salesadmin2@gmail.com', password: 'K1en_Lua@2024', name: 'Nguyễn Thị D', phone: '0987654324', role: 'salesadmin', lat: 10.79, lng: 106.72 },
+            { id: 5, email: 'salesadmin3@gmail.com', password: 'K1en_Lua@2024', name: 'Hoàng Văn E', phone: '0987654325', role: 'salesadmin', lat: 10.75, lng: 106.68 },
+            { id: 6, email: 'salesadmin4@gmail.com', password: 'K1en_Lua@2024', name: 'Vũ Thị F', phone: '0987654326', role: 'salesadmin', lat: 10.80, lng: 106.73 },
+            { id: 7, email: 'salesadmin5@gmail.com', password: 'K1en_Lua@2024', name: 'Dương Văn G', phone: '0987654327', role: 'salesadmin', lat: 10.77, lng: 106.74 },
+            { id: 8, email: 'salesadmin6@gmail.com', password: 'K1en_Lua@2024', name: 'Bùi Thị H', phone: '0987654328', role: 'salesadmin', lat: 10.76, lng: 106.67 },
+            { id: 9, email: 'salesadmin7@gmail.com', password: 'K1en_Lua@2024', name: 'Tạ Văn I', phone: '0987654329', role: 'salesadmin', lat: 10.78, lng: 106.75 },
+            { id: 10, email: 'salesadmin8@gmail.com', password: 'K1en_Lua@2024', name: 'Lương Thị J', phone: '0987654330', role: 'salesadmin', lat: 10.74, lng: 106.66 },
+            ...Array.from({length: 30}, (_, i) => ({
+                id: 11 + i,
+                email: `staff${i + 1}@gmail.com`,
+                password: 'K1en_Lua@2024',
+                name: ['Kiều Văn K', 'Phan Thị L', 'Quách Văn M', 'Rạch Thị N', 'Sơn Văn O', 'Trương Thị P', 'Uyên Văn Q', 'Võ Thị R', 'Xương Văn S', 'Yên Thị T', 'Zita Văn U', 'Anh Thị V', 'Bảo Văn W', 'Cường Thị X', 'Đạt Văn Y', 'Erm Thị Z', 'Phúc Văn AA', 'Giang Thị BB', 'Huy Văn CC', 'Ích Thị DD', 'Jolie Văn EE', 'Khanh Thị FF', 'Lâm Văn GG', 'Mây Thị HH', 'Nam Văn II', 'Omai Thị JJ', 'Phượng Văn KK', 'Quỳnh Thị LL', 'Rồng Văn MM', 'Sắc Thị NN'][i],
+                phone: `098765${4331 + i}`,
+                role: 'salesstaff',
+                lat: 10.7769 + (Math.random() - 0.5) * 0.1,
+                lng: 106.7009 + (Math.random() - 0.5) * 0.1
+            }))
+        ];
+
+        // ============ FUNCTIONS ============
+        function handleLogin(e) {
+            e.preventDefault();
+            const user = validUsers.find(u => u.email === loginEmail && u.password === loginPassword);
+            if (user) {
+                currentUser = user;
+                loginEmail = '';
+                loginPassword = '';
+                activeTab = 'dashboard';
+                render();
+            } else {
+                alert('❌ Email hoặc mật khẩu không chính xác!');
+            }
+        }
+
+        function handleLogout() {
+            currentUser = null;
+            render();
+        }
+
+        function setTab(tab) {
+            activeTab = tab;
+            render();
+        }
+
+        function selectStaff(staffId) {
+            selectedStaffId = staffId;
+            activeTab = 'staffdetail';
+            render();
+        }
+
+        // Quick Note
+        function saveNote(e) {
+            e.preventDefault();
+            const noteData = {
+                id: Date.now(),
+                userId: currentUser.id,
+                date: new Date().toISOString(),
+                product: document.getElementById('productName')?.value || '',
+                npp: document.getElementById('npp')?.value || '',
+                volume: document.getElementById('volume')?.value || '',
+                hinhThucVC: document.getElementById('hinhThucVC')?.value || '',
+                giaMua: document.getElementById('giaMua')?.value || '',
+                chiPhi: document.getElementById('chiPhi')?.value || '',
+                giaBan: document.getElementById('giaBan')?.value || '',
+                status: document.getElementById('status')?.value || '',
+                ghiChu: document.getElementById('ghiChu')?.value || '',
+            };
+            notes.push(noteData);
+            localStorage.setItem('notes', JSON.stringify(notes));
+            alert('✅ Ghi chú đã lưu!');
+            render();
+        }
+
+        // Photo
+        function capturePhoto() {
+            document.getElementById('photoInput').click();
+        }
+
+        function handlePhotoSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const photoData = {
+                        id: Date.now(),
+                        userId: currentUser.id,
+                        date: new Date().toISOString(),
+                        data: event.target.result,
+                        location: document.getElementById('photoLocation')?.value || 'Unknown',
+                    };
+                    photos.push(photoData);
+                    localStorage.setItem('photos', JSON.stringify(photos));
+                    alert('✅ Ảnh đã lưu!');
+                    render();
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        // GPS Check-in
+        function checkInGPS() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    const visit = {
+                        id: Date.now(),
+                        userId: currentUser.id,
+                        date: new Date().toISOString(),
+                        latitude: lat,
+                        longitude: lng,
+                        customerName: document.getElementById('customerName')?.value || 'Unknown',
+                        address: document.getElementById('customerAddress')?.value || 'Unknown',
+                    };
+                    visits.push(visit);
+                    localStorage.setItem('visits', JSON.stringify(visits));
+                    alert(`✅ Check-in thành công!`);
+                    render();
+                });
+            }
+        }
+
+        // Excel Export
+        function exportToExcel() {
+            const data = [];
+            notes.filter(n => n.userId === currentUser.id).forEach(note => {
+                data.push({
+                    'Ngày': new Date(note.date).toLocaleDateString('vi-VN'),
+                    'Sản phẩm': note.product,
+                    'NPP': note.npp,
+                    'Volume': note.volume,
+                    'Giá bán': note.giaBan,
+                    'Trạng thái': note.status,
+                });
+            });
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Sales');
+            XLSX.writeFile(wb, `sales-${new Date().toISOString().split('T')[0]}.xlsx`);
+        }
+
+        // Admin Export Team Data
+        function exportTeamData() {
+            const data = [];
+            validUsers.filter(u => u.role === 'salesstaff').forEach(staff => {
+                const staffNotes = notes.filter(n => n.userId === staff.id);
+                const staffVisits = visits.filter(v => v.userId === staff.id);
+                const salesValue = staffNotes.reduce((sum, n) => sum + (parseFloat(n.giaBan) || 0), 0);
+                
+                data.push({
+                    'Tên NV': staff.name,
+                    'Email': staff.email,
+                    'SĐT': staff.phone,
+                    'Ghi chú': staffNotes.length,
+                    'Check-in': staffVisits.length,
+                    'Doanh số': salesValue,
+                    'Trung bình': (staffNotes.length > 0 ? (salesValue / staffNotes.length).toFixed(0) : 0),
+                });
+            });
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Team');
+            XLSX.writeFile(wb, `team-report-${new Date().toISOString().split('T')[0]}.xlsx`);
+        }
+
+        // ============ RENDER ============
+        function render() {
+            const app = document.getElementById('app');
+
+            if (!currentUser) {
+                app.innerHTML = getLoginHTML();
+                document.getElementById('email')?.addEventListener('change', (e) => loginEmail = e.target.value);
+                document.getElementById('password')?.addEventListener('change', (e) => loginPassword = e.target.value);
+            } else {
+                app.innerHTML = getMainHTML();
+                setTimeout(() => {
+                    if (activeTab === 'map') initMap();
+                    if (activeTab === 'dashboard' && currentUser.role === 'admin') initChart();
+                }, 100);
+            }
+        }
+
+        function getLoginHTML() {
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-orange-900 via-orange-800 to-amber-900 flex items-center justify-center p-4">
+                    <div class="w-full max-w-md">
+                        <div class="text-center mb-8">
+                            <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-orange-400 to-amber-400 flex items-center justify-center text-white text-3xl">🟠</div>
+                            <h1 class="text-3xl font-bold text-white mb-2">Thanh Son Sales</h1>
+                            <p class="text-amber-200/60">Admin + Field Sales Management</p>
+                        </div>
+
+                        <div class="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 p-8">
+                            <form onsubmit="handleLogin(event)">
+                                <input type="email" id="email" placeholder="Email Gmail" class="w-full bg-white/5 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/40 mb-4" />
+                                <div class="relative mb-6">
+                                    <input type="${showPassword ? 'text' : 'password'}" id="password" placeholder="Mật khẩu" class="w-full bg-white/5 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/40" />
+                                    <button type="button" onclick="showPassword=!showPassword; render();" class="absolute right-3 top-1/2 -translate-y-1/2 text-white/60">${showPassword ? '👁️' : '🔒'}</button>
+                                </div>
+                                <button type="submit" class="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold py-3 rounded-lg">🔓 Đăng Nhập</button>
+                            </form>
+                            <div class="mt-8 pt-6 border-t border-white/10">
+                                <p class="text-white/60 text-sm mb-3">🟠 Test: admin1@gmail.com / K1en_Lua@2024</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function getMainHTML() {
+            const isAdmin = currentUser.role === 'admin';
+            
+            return `
+                <div class="min-h-screen bg-gradient-to-br from-orange-900 via-orange-800 to-amber-900 flex flex-col">
+                    <!-- Header -->
+                    <div class="bg-orange-900/80 border-b border-orange-400/20 px-4 py-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h1 class="text-white font-bold">Thanh Son Sales</h1>
+                                <p class="text-amber-200/60 text-xs">${currentUser.name}</p>
+                            </div>
+                            <button onclick="handleLogout()" class="px-3 py-2 bg-orange-500/20 text-orange-300 rounded-lg text-sm">👋 Đăng Xuất</button>
+                        </div>
+                    </div>
+
+                    <!-- Tabs -->
+                    <div class="bg-white/5 border-b border-orange-400/20 overflow-x-auto px-4 py-2 flex gap-1">
+                        <button onclick="setTab('dashboard')" class="px-3 py-2 rounded-lg whitespace-nowrap ${activeTab === 'dashboard' ? 'bg-orange-500/20 text-orange-300' : 'text-amber-200/60'} text-sm">📊 Dashboard</button>
+                        <button onclick="setTab('quicknote')" class="px-3 py-2 rounded-lg whitespace-nowrap ${activeTab === 'quicknote' ? 'bg-orange-500/20 text-orange-300' : 'text-amber-200/60'} text-sm">✍️ Ghi Chú</button>
+                        <button onclick="setTab('photo')" class="px-3 py-2 rounded-lg whitespace-nowrap ${activeTab === 'photo' ? 'bg-orange-500/20 text-orange-300' : 'text-amber-200/60'} text-sm">📸 Ảnh</button>
+                        <button onclick="setTab('checkin')" class="px-3 py-2 rounded-lg whitespace-nowrap ${activeTab === 'checkin' ? 'bg-orange-500/20 text-orange-300' : 'text-amber-200/60'} text-sm">📍 Check-in</button>
+                        <button onclick="setTab('map')" class="px-3 py-2 rounded-lg whitespace-nowrap ${activeTab === 'map' ? 'bg-orange-500/20 text-orange-300' : 'text-amber-200/60'} text-sm">🗺️ Map</button>
+                        <button onclick="setTab('data')" class="px-3 py-2 rounded-lg whitespace-nowrap ${activeTab === 'data' ? 'bg-orange-500/20 text-orange-300' : 'text-amber-200/60'} text-sm">📤 Data</button>
+                        ${isAdmin ? `<button onclick="setTab('reports')" class="px-3 py-2 rounded-lg whitespace-nowrap ${activeTab === 'reports' ? 'bg-orange-500/20 text-orange-300' : 'text-amber-200/60'} text-sm">📈 Báo Cáo</button>` : ''}
+                        ${isAdmin ? `<button onclick="setTab('team')" class="px-3 py-2 rounded-lg whitespace-nowrap ${activeTab === 'team' ? 'bg-orange-500/20 text-orange-300' : 'text-amber-200/60'} text-sm">👥 Team</button>` : ''}
+                    </div>
+
+                    <!-- Content -->
+                    <div class="flex-1 overflow-y-auto px-4 py-6">
+                        <div class="max-w-7xl">
+                            ${getTabContent()}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function getTabContent() {
+            const isAdmin = currentUser.role === 'admin';
+
+            if (activeTab === 'dashboard') {
+                if (isAdmin) {
+                    const staffList = validUsers.filter(u => u.role === 'salesstaff');
+                    const totalNotes = notes.filter(n => staffList.some(s => s.id === n.userId)).length;
+                    const totalVisits = visits.filter(v => staffList.some(s => s.id === v.userId)).length;
+                    const totalSales = notes.filter(n => staffList.some(s => s.id === n.userId))
+                        .reduce((sum, n) => sum + (parseFloat(n.giaBan) || 0), 0);
+
+                    return `
+                        <div>
+                            <h2 class="text-3xl font-bold text-white mb-6">📊 Admin Dashboard</h2>
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                                <div class="bg-white/10 rounded-lg p-4 border border-white/20 stat-card">
+                                    <p class="text-amber-200/60 text-sm">Tổng Nhân Viên</p>
+                                    <p class="text-3xl font-bold text-white">${staffList.length}</p>
+                                    <p class="text-orange-400 text-xs mt-2">✅ Active</p>
+                                </div>
+                                <div class="bg-white/10 rounded-lg p-4 border border-white/20 stat-card">
+                                    <p class="text-amber-200/60 text-sm">Ghi Chú Hôm Nay</p>
+                                    <p class="text-3xl font-bold text-white">${notes.filter(n => {
+                                        const nDate = new Date(n.date);
+                                        const today = new Date();
+                                        return staffList.some(s => s.id === n.userId) && nDate.toDateString() === today.toDateString();
+                                    }).length}</p>
+                                    <p class="text-orange-400 text-xs mt-2">📝 Products</p>
+                                </div>
+                                <div class="bg-white/10 rounded-lg p-4 border border-white/20 stat-card">
+                                    <p class="text-amber-200/60 text-sm">Check-in Hôm Nay</p>
+                                    <p class="text-3xl font-bold text-white">${visits.filter(v => {
+                                        const vDate = new Date(v.date);
+                                        const today = new Date();
+                                        return staffList.some(s => s.id === v.userId) && vDate.toDateString() === today.toDateString();
+                                    }).length}</p>
+                                    <p class="text-orange-400 text-xs mt-2">📍 Visits</p>
+                                </div>
+                                <div class="bg-white/10 rounded-lg p-4 border border-white/20 stat-card">
+                                    <p class="text-amber-200/60 text-sm">Doanh Số Tổng</p>
+                                    <p class="text-3xl font-bold text-white">${(totalSales / 1000000).toFixed(1)}M</p>
+                                    <p class="text-orange-400 text-xs mt-2">💰 VND</p>
+                                </div>
+                            </div>
+
+                            <div class="bg-white/10 rounded-lg border border-white/20 p-6">
+                                <h3 class="text-xl font-bold text-white mb-4">📈 Biểu Đồ Doanh Số</h3>
+                                <div id="chartContainer">
+                                    <canvas id="salesChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    return `
+                        <div>
+                            <h2 class="text-3xl font-bold text-white mb-6">📊 My Dashboard</h2>
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <div class="bg-white/10 rounded-lg p-4 border border-white/20">
+                                    <p class="text-amber-200/60 text-sm">Ghi Chú Hôm Nay</p>
+                                    <p class="text-3xl font-bold text-white">${notes.filter(n => {
+                                        const nDate = new Date(n.date);
+                                        const today = new Date();
+                                        return n.userId === currentUser.id && nDate.toDateString() === today.toDateString();
+                                    }).length}</p>
+                                </div>
+                                <div class="bg-white/10 rounded-lg p-4 border border-white/20">
+                                    <p class="text-amber-200/60 text-sm">Check-in Hôm Nay</p>
+                                    <p class="text-3xl font-bold text-white">${visits.filter(v => {
+                                        const vDate = new Date(v.date);
+                                        const today = new Date();
+                                        return v.userId === currentUser.id && vDate.toDateString() === today.toDateString();
+                                    }).length}</p>
+                                </div>
+                                <div class="bg-white/10 rounded-lg p-4 border border-white/20">
+                                    <p class="text-amber-200/60 text-sm">Ảnh Chụp</p>
+                                    <p class="text-3xl font-bold text-white">${photos.filter(p => p.userId === currentUser.id).length}</p>
+                                </div>
+                                <div class="bg-white/10 rounded-lg p-4 border border-white/20">
+                                    <p class="text-amber-200/60 text-sm">Tổng Ghi Chú</p>
+                                    <p class="text-3xl font-bold text-white">${notes.filter(n => n.userId === currentUser.id).length}</p>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            } else if (activeTab === 'quicknote') {
+                return `
+                    <div>
+                        <h2 class="text-3xl font-bold text-white mb-6">✍️ Ghi Chú Nhanh</h2>
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div class="lg:col-span-1">
+                                <div class="bg-white/10 rounded-lg border border-white/20 p-4">
+                                    <h3 class="text-lg font-bold text-white mb-3">📝 Tạo</h3>
+                                    <form onsubmit="saveNote(event)">
+                                        <div class="space-y-2">
+                                            <input type="text" id="productName" placeholder="Sản phẩm" class="w-full bg-white/5 border border-white/20 rounded px-3 py-2 text-white placeholder-white/40 text-sm" required />
+                                            <input type="text" id="npp" placeholder="NPP" class="w-full bg-white/5 border border-white/20 rounded px-3 py-2 text-white placeholder-white/40 text-sm" required />
+                                            <input type="number" id="volume" placeholder="Volume" class="w-full bg-white/5 border border-white/20 rounded px-3 py-2 text-white placeholder-white/40 text-sm" required />
+                                            <select id="hinhThucVC" class="w-full bg-white/5 border border-white/20 rounded px-3 py-2 text-white text-sm">
+                                                <option value="">Hình thức VC</option>
+                                                <option value="Tiền mặt">Tiền mặt</option>
+                                                <option value="Chuyển khoản">Chuyển khoản</option>
+                                            </select>
+                                            <input type="number" id="giaMua" placeholder="Giá mua" class="w-full bg-white/5 border border-white/20 rounded px-3 py-2 text-white placeholder-white/40 text-sm" required />
+                                            <input type="number" id="chiPhi" placeholder="Chi phí" class="w-full bg-white/5 border border-white/20 rounded px-3 py-2 text-white placeholder-white/40 text-sm" />
+                                            <input type="number" id="giaBan" placeholder="Giá bán" class="w-full bg-white/5 border border-white/20 rounded px-3 py-2 text-white placeholder-white/40 text-sm" required />
+                                            <select id="status" class="w-full bg-white/5 border border-white/20 rounded px-3 py-2 text-white text-sm">
+                                                <option value="">Trạng thái</option>
+                                                <option value="Bán được">✅ Bán được</option>
+                                                <option value="Không bán">❌ Không bán</option>
+                                            </select>
+                                            <textarea id="ghiChu" placeholder="Ghi chú" class="w-full bg-white/5 border border-white/20 rounded px-3 py-2 text-white placeholder-white/40 text-sm" rows="2"></textarea>
+                                            <button type="submit" class="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold py-2 rounded text-sm">💾 Lưu</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                            <div class="lg:col-span-2">
+                                <div class="bg-white/10 rounded-lg border border-white/20 p-4">
+                                    <h3 class="text-lg font-bold text-white mb-3">📋 Ghi Chú</h3>
+                                    <div class="space-y-2 max-h-96 overflow-y-auto">
+                                        ${notes.filter(n => n.userId === currentUser.id).reverse().slice(0, 20).map(note => `
+                                            <div class="bg-white/5 rounded p-2">
+                                                <p class="text-white font-bold text-sm">${note.product}</p>
+                                                <p class="text-orange-300 text-xs">${note.npp} • ${note.volume}</p>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (activeTab === 'photo') {
+                return `
+                    <div>
+                        <h2 class="text-3xl font-bold text-white mb-6">📸 Ảnh</h2>
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div>
+                                <div class="bg-white/10 rounded-lg border border-white/20 p-4">
+                                    <input type="text" id="photoLocation" placeholder="Địa điểm" class="w-full bg-white/5 border border-white/20 rounded px-3 py-2 text-white placeholder-white/40 text-sm mb-2" />
+                                    <button onclick="capturePhoto()" class="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold py-2 rounded text-sm">📷 Chụp</button>
+                                </div>
+                            </div>
+                            <div class="lg:col-span-2">
+                                <div class="bg-white/10 rounded-lg border border-white/20 p-4">
+                                    <h3 class="text-white font-bold mb-3">Ảnh (${photos.filter(p => p.userId === currentUser.id).length})</h3>
+                                    <div class="grid grid-cols-2 gap-3 max-h-96 overflow-y-auto">
+                                        ${photos.filter(p => p.userId === currentUser.id).reverse().map(photo => `
+                                            <div class="bg-white/5 rounded overflow-hidden">
+                                                <img src="${photo.data}" alt="Photo" class="w-full h-20 object-cover" />
+                                                <p class="text-orange-300 text-xs p-1">${photo.location}</p>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (activeTab === 'checkin') {
+                return `
+                    <div>
+                        <h2 class="text-3xl font-bold text-white mb-6">📍 Check-in GPS</h2>
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div>
+                                <div class="bg-white/10 rounded-lg border border-white/20 p-4">
+                                    <input type="text" id="customerName" placeholder="Tên khách" class="w-full bg-white/5 border border-white/20 rounded px-3 py-2 text-white placeholder-white/40 text-sm mb-2" />
+                                    <input type="text" id="customerAddress" placeholder="Địa chỉ" class="w-full bg-white/5 border border-white/20 rounded px-3 py-2 text-white placeholder-white/40 text-sm mb-2" />
+                                    <button onclick="checkInGPS()" class="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold py-2 rounded text-sm">📍 Check-in</button>
+                                </div>
+                            </div>
+                            <div class="lg:col-span-2">
+                                <div class="bg-white/10 rounded-lg border border-white/20 p-4">
+                                    <h3 class="text-white font-bold mb-3">Danh Sách</h3>
+                                    <div class="space-y-2 max-h-96 overflow-y-auto">
+                                        ${visits.filter(v => v.userId === currentUser.id).reverse().slice(0, 20).map(visit => `
+                                            <div class="bg-white/5 rounded p-2">
+                                                <p class="text-white font-bold text-sm">${visit.customerName}</p>
+                                                <p class="text-orange-300 text-xs">📍 ${visit.latitude.toFixed(4)}, ${visit.longitude.toFixed(4)}</p>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (activeTab === 'map') {
+                return `
+                    <div>
+                        <h2 class="text-3xl font-bold text-white mb-6">🗺️ Bản Đồ</h2>
+                        <div class="bg-white/10 rounded-lg border border-white/20 p-4">
+                            <div id="map"></div>
+                        </div>
+                    </div>
+                `;
+            } else if (activeTab === 'data') {
+                return `
+                    <div>
+                        <h2 class="text-3xl font-bold text-white mb-6">📤 Data</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="bg-white/10 rounded-lg border border-white/20 p-6">
+                                <h3 class="text-white font-bold mb-4">📥 Nhập Excel</h3>
+                                <button onclick="document.getElementById('excelInput').click()" class="w-full bg-green-500 text-white font-semibold py-3 rounded">📥 Chọn File</button>
+                            </div>
+                            <div class="bg-white/10 rounded-lg border border-white/20 p-6">
+                                <h3 class="text-white font-bold mb-4">📤 Xuất Excel</h3>
+                                <button onclick="exportToExcel()" class="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold py-3 rounded">📤 Xuất</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (activeTab === 'reports' && isAdmin) {
+                const staffList = validUsers.filter(u => u.role === 'salesstaff');
+                const staffStats = staffList.map(staff => {
+                    const staffNotes = notes.filter(n => n.userId === staff.id);
+                    const staffVisits = visits.filter(v => v.userId === staff.id);
+                    const sales = staffNotes.reduce((sum, n) => sum + (parseFloat(n.giaBan) || 0), 0);
+                    return { name: staff.name, notes: staffNotes.length, visits: staffVisits.length, sales };
+                }).sort((a, b) => b.sales - a.sales);
+
+                return `
+                    <div>
+                        <h2 class="text-3xl font-bold text-white mb-6">📈 Báo Cáo Team</h2>
+                        <div class="mb-6">
+                            <button onclick="exportTeamData()" class="bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold px-6 py-3 rounded">📤 Export Team Report</button>
+                        </div>
+                        <div class="bg-white/10 rounded-lg border border-white/20 p-6">
+                            <h3 class="text-white font-bold mb-4">🏆 Top Performers</h3>
+                            <div class="space-y-2 max-h-96 overflow-y-auto">
+                                ${staffStats.slice(0, 10).map((stat, idx) => `
+                                    <div class="bg-white/5 rounded p-3 flex justify-between items-center">
+                                        <div>
+                                            <p class="text-white font-bold">${idx + 1}. ${stat.name}</p>
+                                            <p class="text-orange-300 text-xs">Ghi chú: ${stat.notes} • Check-in: ${stat.visits}</p>
+                                        </div>
+                                        <div class="text-right">
+                                            <p class="text-white font-bold">${(stat.sales / 1000000).toFixed(1)}M</p>
+                                            <p class="text-amber-200/60 text-xs">Doanh số</p>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (activeTab === 'team' && isAdmin) {
+                const staffList = validUsers.filter(u => u.role === 'salesstaff');
+                return `
+                    <div>
+                        <h2 class="text-3xl font-bold text-white mb-6">👥 Team Management</h2>
+                        <div class="bg-white/10 rounded-lg border border-white/20 p-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                ${staffList.map(staff => `
+                                    <div class="bg-white/5 border border-white/10 rounded p-4 cursor-pointer hover:bg-white/10" onclick="selectStaff(${staff.id})">
+                                        <p class="text-white font-bold">${staff.name}</p>
+                                        <p class="text-orange-300 text-sm">${staff.email}</p>
+                                        <p class="text-amber-200/60 text-sm">${staff.phone}</p>
+                                        <div class="mt-3 text-xs text-amber-200/60">
+                                            <p>📝 Ghi chú: ${notes.filter(n => n.userId === staff.id).length}</p>
+                                            <p>📍 Check-in: ${visits.filter(v => v.userId === staff.id).length}</p>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function initChart() {
+            const staffList = validUsers.filter(u => u.role === 'salesstaff');
+            const staffNames = staffList.slice(0, 10).map(s => s.name.split(' ')[1]);
+            const staffSales = staffList.slice(0, 10).map(staff => {
+                return notes.filter(n => n.userId === staff.id).reduce((sum, n) => sum + (parseFloat(n.giaBan) || 0), 0) / 1000000;
+            });
+
+            const ctx = document.getElementById('salesChart');
+            if (ctx) {
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: staffNames,
+                        datasets: [{
+                            label: 'Doanh số (Triệu VND)',
+                            data: staffSales,
+                            backgroundColor: 'rgba(255, 149, 0, 0.8)',
+                            borderColor: 'rgba(255, 189, 36, 1)',
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { labels: { color: '#fff' } } },
+                        scales: {
+                            y: { ticks: { color: '#fff' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+                            x: { ticks: { color: '#fff' }, grid: { color: 'rgba(255,255,255,0.1)' } }
+                        }
+                    }
+                });
+            }
+        }
+
+        function initMap() {
+            const map = L.map('map').setView([10.7769, 106.7009], 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            visits.filter(v => v.userId === currentUser.id).forEach(visit => {
+                L.circleMarker([visit.latitude, visit.longitude], {
+                    radius: 8,
+                    fillColor: "#ff9500",
+                    color: "#fbbf24",
+                    weight: 2,
+                    fillOpacity: 0.8
+                }).bindPopup(`<b>${visit.customerName}</b>`).addTo(map);
+            });
+        }
+
+        render();
+    </script>
+</body>
+</html>
